@@ -22,10 +22,15 @@ export default async function PublicFormPage({
   if (!qr) notFound()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center p-4 relative">
+      {/* Watermark ITM */}
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-0">
+        <img src="/logoitm.png" alt="" className="w-96 select-none" style={{ opacity: 0.05 }} />
+      </div>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-8 relative z-10">
         {/* Header */}
-        <div className="text-center mb-6">
+        <div className="text-center mb-4">
+          <img src="/logoitm.png" alt="ITM" className="h-10 mx-auto mb-3 object-contain" />
           <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-600 rounded-xl mb-3">
             <span className="text-white text-xl">
               {qr.tipo === 'fgl004' ? '🔑' : qr.tipo === 'fgl010' ? '🧪' : '🦺'}
@@ -51,9 +56,9 @@ export default async function PublicFormPage({
 
         <hr className="border-gray-100 mb-6" />
 
-        {qr.tipo === 'fgl004' && <FormFGL004 qrCodigo={qr.codigo} laboratorio={qr.laboratorio} />}
-        {qr.tipo === 'fgl010' && <FormFGL010 qrCodigo={qr.codigo} laboratorio={qr.laboratorio} />}
-        {qr.tipo === 'fgl140' && <FormFGL140 qrCodigo={qr.codigo} laboratorio={qr.laboratorio} />}
+        {qr.tipo === 'fgl004' && <FormFGL004 qrCodigo={qr.codigo} laboratorio={qr.laboratorio} organizacionId={qr.organizacion_id} />}
+        {qr.tipo === 'fgl010' && <FormFGL010 qrCodigo={qr.codigo} laboratorio={qr.laboratorio} organizacionId={qr.organizacion_id} />}
+        {qr.tipo === 'fgl140' && <FormFGL140 qrCodigo={qr.codigo} laboratorio={qr.laboratorio} organizacionId={qr.organizacion_id} />}
 
         <p className="text-center text-xs text-gray-300 mt-6">
           CHECKLAB · ITM Laboratorios

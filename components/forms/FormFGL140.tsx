@@ -1,8 +1,18 @@
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import { ORG_ID } from '@/lib/org'
 
-export default function FormFGL140({ qrCodigo, laboratorio }: { qrCodigo: string; laboratorio: string }) {
+const today = new Date().toISOString().split('T')[0]
+
+type Props = {
+  qrCodigo: string
+  laboratorio: string
+  organizacionId?: string
+  onSuccess?: () => void
+}
+
+export default function FormFGL140({ qrCodigo, laboratorio, organizacionId, onSuccess }: Props) {
   const supabase = createClient()
   const [enviado, setEnviado] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -10,48 +20,81 @@ export default function FormFGL140({ qrCodigo, laboratorio }: { qrCodigo: string
 
   const [form, setForm] = useState({
     elemento_tipo: 'ducha',
+    elemento_tipo_otro: '',
+    periodicidad: '1_mes',
+    periodicidad_otro: '',
     identificacion: '',
-    fecha_revision: new Date().toISOString().split('T')[0],
+    fecha_revision: today,
     fecha_vencimiento: '',
     estado: 'bueno',
-    periodicidad: '1_mes',
     revisado_por: '',
     observaciones: '',
   })
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     setLoading(true)
     setError('')
 
+    // Resolve "otro" values
+    const elementoFinal =
+      form.elemento_tipo === 'otro' ? form.elemento_tipo_otro.trim() : form.elemento_tipo
+    const periodicidadFinal =
+      form.periodicidad === 'otro' ? form.periodicidad_otro.trim() : form.periodicidad
+
+    if (!elementoFinal) {
+      setError('Debe especificar el tipo de elemento de protección.')
+      setLoading(false)
+      return
+    }
+
     const { error: err } = await supabase.from('fgl_140').insert([{
       qr_codigo: qrCodigo,
       laboratorio,
-      elemento_tipo: form.elemento_tipo,
+      elemento_tipo: elementoFinal,
       identificacion: form.identificacion || null,
       fecha_revision: form.fecha_revision,
       fecha_vencimiento: form.fecha_vencimiento || null,
       estado: form.estado,
-      periodicidad: form.periodicidad,
+      periodicidad: periodicidadFinal || null,
       revisado_por: form.revisado_por || null,
       observaciones: form.observaciones || null,
+      organizacion_id: organizacionId || ORG_ID || null,
     }])
 
-    if (err) setError('Error al guardar. Intenta de nuevo.')
-    else setEnviado(true)
+    if (err) setError(`Error al guardar: ${err.message || 'Intenta de nuevo.'}`)
+    else {
+      setEnviado(true)
+      onSuccess?.()
+    }
     setLoading(false)
+  }
+
+  const resetForm = () => {
+    setEnviado(false)
+    setForm({
+      elemento_tipo: 'ducha',
+      elemento_tipo_otro: '',
+      periodicidad: '1_mes',
+      periodicidad_otro: '',
+      identificacion: '',
+      fecha_revision: today,
+      fecha_vencimiento: '',
+      estado: 'bueno',
+      revisado_por: '',
+      observaciones: '',
+    })
   }
 
   if (enviado) {
     return (
       <div className="text-center py-6">
         <div className="text-5xl mb-3">✅</div>
-        <h2 className="text-lg font-bold text-gray-800">¡Revisión registrada!</h2>
-        <p className="text-sm text-gray-500 mt-1">El control de EPP fue registrado correctamente.</p>
-        <button onClick={() => { setEnviado(false); setForm({ elemento_tipo: 'ducha', identificacion: '', fecha_revision: new Date().toISOString().split('T')[0], fecha_vencimiento: '', estado: 'bueno', periodicidad: '1_mes', revisado_por: '', observaciones: '' }) }}
-          className="mt-5 text-sm text-blue-600 hover:underline">
+        <h2 className="text-lg font-bold text-gray-900">¡Revisión registrada!</h2>
+        <p className="text-sm text-gray-600 mt-1">El control de EPP fue registrado correctamente.</p>
+        <button onClick={resetForm} className="mt-5 text-sm text-blue-600 hover:underline">
           Registrar otro
         </button>
       </div>
@@ -60,53 +103,82 @@ export default function FormFGL140({ qrCodigo, laboratorio }: { qrCodigo: string
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Tipo de elemento */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Elemento de protección *</label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">Elemento de protección *</label>
         <select required value={form.elemento_tipo} onChange={e => set('elemento_tipo', e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="ducha">🚿 Ducha de emergencia y Lavaojos</option>
           <option value="extintor">🧯 Extintor</option>
           <option value="botiquin">🩺 Botiquín de primeros auxilios</option>
           <option value="kit_derrames">🪣 Kit de derrames (ácidos/bases)</option>
           <option value="kit_hidrocarburos">🛢️ Kit derrames hidrocarburos</option>
           <option value="kit_mercurio">⚗️ Kit derrames mercurio</option>
+          <option value="otro">✏️ Otro (especificar)</option>
         </select>
+        {form.elemento_tipo === 'otro' && (
+          <input
+            required
+            value={form.elemento_tipo_otro}
+            onChange={e => set('elemento_tipo_otro', e.target.value)}
+            placeholder="Describa el elemento de protección"
+            className="mt-2 w-full border border-blue-400 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Identificación / Placa</label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Identificación / Placa</label>
           <input value={form.identificacion} onChange={e => set('identificacion', e.target.value)}
             placeholder="Ej: EXT-001"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Periodicidad</label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Periodicidad</label>
           <select value={form.periodicidad} onChange={e => set('periodicidad', e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="15_dias">15 días</option>
             <option value="1_mes">1 mes</option>
             <option value="2_meses">2 meses</option>
             <option value="anual">Anual</option>
+            <option value="otro">✏️ Otro</option>
           </select>
+          {form.periodicidad === 'otro' && (
+            <input
+              value={form.periodicidad_otro}
+              onChange={e => set('periodicidad_otro', e.target.value)}
+              placeholder="Ej: Semestral"
+              className="mt-2 w-full border border-blue-400 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Fecha de revisión *</label>
-          <input required type="date" value={form.fecha_revision} onChange={e => set('fecha_revision', e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de revisión *</label>
+          <input
+            required
+            type="date"
+            value={form.fecha_revision}
+            max={today}
+            onChange={e => set('fecha_revision', e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Fecha de vencimiento</label>
-          <input type="date" value={form.fecha_vencimiento} onChange={e => set('fecha_vencimiento', e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de vencimiento</label>
+          <input
+            type="date"
+            value={form.fecha_vencimiento}
+            min={today}
+            onChange={e => set('fecha_vencimiento', e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-2">Estado del elemento *</label>
+        <label className="block text-xs font-medium text-gray-700 mb-2">Estado del elemento *</label>
         <div className="flex gap-3">
           {[
             { v: 'bueno', label: '✅ Bueno', color: 'bg-green-600' },
@@ -118,7 +190,7 @@ export default function FormFGL140({ qrCodigo, laboratorio }: { qrCodigo: string
               className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-colors ${
                 form.estado === opt.v
                   ? `${opt.color} text-white border-transparent`
-                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}>
               {opt.label}
             </button>
@@ -127,17 +199,17 @@ export default function FormFGL140({ qrCodigo, laboratorio }: { qrCodigo: string
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Revisado por</label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">Revisado por</label>
         <input value={form.revisado_por} onChange={e => set('revisado_por', e.target.value)}
           placeholder="Nombre del responsable"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Observaciones / Anomalías</label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">Observaciones / Anomalías</label>
         <textarea value={form.observaciones} onChange={e => set('observaciones', e.target.value)}
           rows={3} placeholder="Describa anomalías encontradas (si aplica)"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}

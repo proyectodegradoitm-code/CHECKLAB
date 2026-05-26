@@ -1,7 +1,8 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { QRCodeSVG } from 'qrcode.react'
+import { ORG_ID } from '@/lib/org'
 
 type QRCode = {
   id: string
@@ -19,7 +20,8 @@ const tipoLabels: Record<string, string> = {
   fgl140: 'FGL 140 — Control EPP',
 }
 
-const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
+  (typeof window !== 'undefined' ? window.location.origin : '')
 
 export default function QRPage() {
   const supabase = createClient()
@@ -27,7 +29,6 @@ export default function QRPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [showForm, setShowForm] = useState(false)
-  const [selected, setSelected] = useState<QRCode | null>(null)
 
   const [form, setForm] = useState({
     tipo: 'fgl004',
@@ -36,14 +37,16 @@ export default function QRPage() {
   })
 
   const fetchQR = async () => {
-    const { data } = await supabase.from('qr_codes').select('*').order('created_at', { ascending: false })
+    let query = supabase.from('qr_codes').select('*').order('created_at', { ascending: false })
+    if (ORG_ID) query = query.eq('organizacion_id', ORG_ID)
+    const { data } = await query
     setQrCodes(data ?? [])
     setLoading(false)
   }
 
   useEffect(() => { fetchQR() }, [])
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleCreate = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     setCreating(true)
     const codigo = `${form.tipo}-${Date.now()}`
@@ -52,6 +55,7 @@ export default function QRPage() {
       tipo: form.tipo,
       descripcion: form.descripcion,
       laboratorio: form.laboratorio,
+      organizacion_id: ORG_ID || null,
     }])
     if (!error) {
       setForm({ tipo: 'fgl004', descripcion: '', laboratorio: '' })
@@ -162,7 +166,7 @@ export default function QRPage() {
                     value={url}
                     size={140}
                     level="M"
-                    includeMargin
+                    marginSize={2}
                   />
                 </div>
 

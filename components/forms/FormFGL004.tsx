@@ -1,8 +1,11 @@
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import { ORG_ID } from '@/lib/org'
 
-export default function FormFGL004({ qrCodigo, laboratorio }: { qrCodigo: string; laboratorio: string }) {
+type Props = { qrCodigo: string; laboratorio: string; organizacionId?: string; onSuccess?: () => void }
+
+export default function FormFGL004({ qrCodigo, laboratorio, organizacionId, onSuccess }: Props) {
   const supabase = createClient()
   const [enviado, setEnviado] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -19,7 +22,7 @@ export default function FormFGL004({ qrCodigo, laboratorio }: { qrCodigo: string
 
   const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }))
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     setLoading(true)
     setError('')
@@ -32,6 +35,7 @@ export default function FormFGL004({ qrCodigo, laboratorio }: { qrCodigo: string
       elemento: form.elemento,
       cantidad: form.cantidad,
       observaciones: form.observaciones || null,
+      organizacion_id: organizacionId || ORG_ID || null,
     }
 
     if (form.tipo === 'devolucion') {
@@ -45,6 +49,7 @@ export default function FormFGL004({ qrCodigo, laboratorio }: { qrCodigo: string
       setError('Error al guardar. Intenta de nuevo.')
     } else {
       setEnviado(true)
+      onSuccess?.()
     }
     setLoading(false)
   }
@@ -91,34 +96,34 @@ export default function FormFGL004({ qrCodigo, laboratorio }: { qrCodigo: string
         <label className="block text-xs font-medium text-gray-600 mb-1">Nombre completo *</label>
         <input required value={form.nombre} onChange={e => set('nombre', e.target.value)}
           placeholder="Nombre del solicitante"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Carné / CC *</label>
         <input required value={form.carnet_cc} onChange={e => set('carnet_cc', e.target.value)}
           placeholder="Número de documento"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Elemento / Equipo *</label>
         <input required value={form.elemento} onChange={e => set('elemento', e.target.value)}
           placeholder="Nombre del equipo o herramienta"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Cantidad</label>
         <input type="number" min={1} value={form.cantidad} onChange={e => set('cantidad', parseInt(e.target.value))}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Observaciones</label>
         <textarea value={form.observaciones} onChange={e => set('observaciones', e.target.value)}
           rows={2} placeholder="Observaciones opcionales"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}

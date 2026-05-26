@@ -2,13 +2,15 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
+import { ORG_NOMBRE } from '@/lib/org'
 
 const navItems = [
-  { href: '/admin',        label: 'Dashboard',    icon: '📊' },
-  { href: '/admin/qr',     label: 'Gestión QR',   icon: '📱' },
-  { href: '/admin/fgl004', label: 'FGL 004 — Préstamos', icon: '🔑' },
-  { href: '/admin/fgl010', label: 'FGL 010 — Inventario', icon: '🧪' },
-  { href: '/admin/fgl140', label: 'FGL 140 — Control EPP', icon: '🦺' },
+  { href: '/admin',           label: 'Dashboard',           icon: '📊' },
+  { href: '/admin/qr',        label: 'Gestión QR',          icon: '📱' },
+  { href: '/admin/fgl004',    label: 'FGL 004 — Préstamos', icon: '🔑' },
+  { href: '/admin/fgl010',    label: 'FGL 010 — Inventario',icon: '🧪' },
+  { href: '/admin/fgl140',    label: 'FGL 140 — Control EPP',icon: '🦺' },
+  { href: '/admin/historial', label: 'Historial',           icon: '📋' },
 ]
 
 export default function AdminNav({ userEmail }: { userEmail: string }) {
@@ -32,7 +34,7 @@ export default function AdminNav({ userEmail }: { userEmail: string }) {
           </div>
           <div>
             <p className="font-bold text-base leading-tight">CHECKLAB</p>
-            <p className="text-blue-300 text-xs">ITM Laboratorios</p>
+            <p className="text-blue-300 text-xs">{ORG_NOMBRE}</p>
           </div>
         </div>
       </div>
