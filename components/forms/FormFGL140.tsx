@@ -1,6 +1,5 @@
 'use client'
-import { useState } from 'react'
-import { createClient } from '@/lib/supabase'
+import { useState, useEffect } from 'react'
 import { ORG_ID } from '@/lib/org'
 
 const today = new Date().toISOString().split('T')[0]
@@ -12,8 +11,20 @@ type Props = {
   onSuccess?: () => void
 }
 
+function calcFechaVencimiento(fechaRevision: string, periodicidad: string): string {
+  if (!fechaRevision || periodicidad === 'otro' || !periodicidad) return ''
+  const d = new Date(fechaRevision + 'T12:00:00')
+  switch (periodicidad) {
+    case '15_dias': d.setDate(d.getDate() + 15); break
+    case '1_mes': d.setMonth(d.getMonth() + 1); break
+    case '2_meses': d.setMonth(d.getMonth() + 2); break
+    case 'anual': d.setFullYear(d.getFullYear() + 1); break
+    default: return ''
+  }
+  return d.toISOString().split('T')[0]
+}
+
 export default function FormFGL140({ qrCodigo, laboratorio, organizacionId, onSuccess }: Props) {
-  const supabase = createClient()
   const [enviado, setEnviado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -25,20 +36,28 @@ export default function FormFGL140({ qrCodigo, laboratorio, organizacionId, onSu
     periodicidad_otro: '',
     identificacion: '',
     fecha_revision: today,
-    fecha_vencimiento: '',
+    fecha_vencimiento: calcFechaVencimiento(today, '1_mes'),
     estado: 'bueno',
     revisado_por: '',
+    cedula_revisado: '',
     observaciones: '',
   })
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  // Auto-calcular fecha_vencimiento cuando cambia periodicidad o fecha_revision
+  useEffect(() => {
+    if (form.periodicidad !== 'otro') {
+      const computed = calcFechaVencimiento(form.fecha_revision, form.periodicidad)
+      setForm(f => ({ ...f, fecha_vencimiento: computed }))
+    }
+  }, [form.periodicidad, form.fecha_revision])
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     setLoading(true)
     setError('')
 
-    // Resolve "otro" values
     const elementoFinal =
       form.elemento_tipo === 'otro' ? form.elemento_tipo_otro.trim() : form.elemento_tipo
     const periodicidadFinal =
@@ -50,22 +69,31 @@ export default function FormFGL140({ qrCodigo, laboratorio, organizacionId, onSu
       return
     }
 
-    const { error: err } = await supabase.from('fgl_140').insert([{
-      qr_codigo: qrCodigo,
-      laboratorio,
-      elemento_tipo: elementoFinal,
-      identificacion: form.identificacion || null,
-      fecha_revision: form.fecha_revision,
-      fecha_vencimiento: form.fecha_vencimiento || null,
-      estado: form.estado,
-      periodicidad: periodicidadFinal || null,
-      revisado_por: form.revisado_por || null,
-      observaciones: form.observaciones || null,
-      organizacion_id: organizacionId || ORG_ID || null,
-    }])
-
-    if (err) setError(`Error al guardar: ${err.message || 'Intenta de nuevo.'}`)
-    else {
+    const res = await fetch('/api/public/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tabla: 'fgl_140',
+        datos: {
+          qr_codigo: qrCodigo,
+          laboratorio,
+          elemento_tipo: elementoFinal,
+          identificacion: form.identificacion || null,
+          fecha_revision: form.fecha_revision,
+          fecha_vencimiento: form.fecha_vencimiento || null,
+          estado: form.estado,
+          periodicidad: periodicidadFinal || null,
+          revisado_por: form.revisado_por || null,
+          cedula_revisado: form.cedula_revisado || null,
+          observaciones: form.observaciones || null,
+          organizacion_id: organizacionId || ORG_ID || null,
+        },
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      setError(json.error ?? 'Error al guardar. Intenta de nuevo.')
+    } else {
       setEnviado(true)
       onSuccess?.()
     }
@@ -81,9 +109,10 @@ export default function FormFGL140({ qrCodigo, laboratorio, organizacionId, onSu
       periodicidad_otro: '',
       identificacion: '',
       fecha_revision: today,
-      fecha_vencimiento: '',
+      fecha_vencimiento: calcFechaVencimiento(today, '1_mes'),
       estado: 'bueno',
       revisado_por: '',
+      cedula_revisado: '',
       observaciones: '',
     })
   }
@@ -100,6 +129,8 @@ export default function FormFGL140({ qrCodigo, laboratorio, organizacionId, onSu
       </div>
     )
   }
+
+  const fechaVencAuto = form.periodicidad !== 'otro'
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -167,13 +198,17 @@ export default function FormFGL140({ qrCodigo, laboratorio, organizacionId, onSu
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de vencimiento</label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            Fecha de vencimiento
+            {fechaVencAuto && <span className="ml-1 text-[10px] text-blue-500 font-normal">calculada automáticamente</span>}
+          </label>
           <input
             type="date"
             value={form.fecha_vencimiento}
             min={today}
-            onChange={e => set('fecha_vencimiento', e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            readOnly={fechaVencAuto}
+            onChange={e => !fechaVencAuto && set('fecha_vencimiento', e.target.value)}
+            className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${fechaVencAuto ? 'bg-blue-50 border-blue-200 cursor-not-allowed' : 'border-gray-300'}`} />
         </div>
       </div>
 
@@ -198,11 +233,21 @@ export default function FormFGL140({ qrCodigo, laboratorio, organizacionId, onSu
         </div>
       </div>
 
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">Revisado por</label>
-        <input value={form.revisado_por} onChange={e => set('revisado_por', e.target.value)}
-          placeholder="Nombre del responsable"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Revisado por</label>
+          <input value={form.revisado_por}
+            onChange={e => set('revisado_por', e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]/g, ''))}
+            placeholder="Nombre del responsable"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Cédula del revisado</label>
+          <input value={form.cedula_revisado} inputMode="numeric"
+            onChange={e => set('cedula_revisado', e.target.value.replace(/\D/g, ''))}
+            placeholder="Número de cédula"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
       </div>
 
       <div>

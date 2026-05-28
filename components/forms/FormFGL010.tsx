@@ -1,6 +1,5 @@
 'use client'
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase'
 import { ORG_ID } from '@/lib/org'
 
 const today = new Date().toISOString().split('T')[0]
@@ -13,7 +12,6 @@ type Props = {
 }
 
 export default function FormFGL010({ qrCodigo, laboratorio, organizacionId, onSuccess }: Props) {
-  const supabase = createClient()
   const [enviado, setEnviado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -40,7 +38,6 @@ export default function FormFGL010({ qrCodigo, laboratorio, organizacionId, onSu
     setLoading(true)
     setError('')
 
-    // Validate fecha_vencimiento for controlled substances
     if (form.sustancia_controlada && form.fecha_vencimiento && form.fecha_vencimiento < today) {
       setError('La fecha de vencimiento de una sustancia controlada no puede ser una fecha pasada.')
       setLoading(false)
@@ -49,25 +46,33 @@ export default function FormFGL010({ qrCodigo, laboratorio, organizacionId, onSu
 
     const unidadFinal = form.unidad === 'otra' ? form.unidad_otra.trim() : form.unidad
 
-    const { error: err } = await supabase.from('fgl_010').insert([{
-      qr_codigo: qrCodigo,
-      laboratorio,
-      nombre_producto: form.nombre_producto,
-      cas: form.cas || null,
-      cantidad_actual: form.cantidad_actual ? parseFloat(form.cantidad_actual) : null,
-      unidad: unidadFinal || null,
-      ubicacion: form.ubicacion || null,
-      fecha_vencimiento: form.fecha_vencimiento || null,
-      peligrosidad: form.peligrosidad || null,
-      sustancia_controlada: form.sustancia_controlada,
-      sustancia_cancerigena: form.sustancia_cancerigena,
-      observaciones: form.observaciones || null,
-      registrado_por: form.registrado_por || null,
-      organizacion_id: organizacionId || ORG_ID || null,
-    }])
-
-    if (err) setError('Error al guardar. Intenta de nuevo.')
-    else {
+    const res = await fetch('/api/public/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tabla: 'fgl_010',
+        datos: {
+          qr_codigo: qrCodigo,
+          laboratorio,
+          nombre_producto: form.nombre_producto,
+          cas: form.cas || null,
+          cantidad_actual: form.cantidad_actual ? parseFloat(form.cantidad_actual) : null,
+          unidad: unidadFinal || null,
+          ubicacion: form.ubicacion || null,
+          fecha_vencimiento: form.fecha_vencimiento || null,
+          peligrosidad: form.peligrosidad || null,
+          sustancia_controlada: form.sustancia_controlada,
+          sustancia_cancerigena: form.sustancia_cancerigena,
+          observaciones: form.observaciones || null,
+          registrado_por: form.registrado_por || null,
+          organizacion_id: organizacionId || ORG_ID || null,
+        },
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      setError(json.error ?? 'Error al guardar. Intenta de nuevo.')
+    } else {
       setEnviado(true)
       onSuccess?.()
     }
@@ -201,8 +206,9 @@ export default function FormFGL010({ qrCodigo, laboratorio, organizacionId, onSu
 
       <div>
         <label className="block text-xs font-medium text-gray-700 mb-1">Registrado por</label>
-        <input value={form.registrado_por} onChange={e => set('registrado_por', e.target.value)}
-          placeholder="Nombre del funcionario que registra"
+        <input value={form.registrado_por}
+          onChange={e => set('registrado_por', e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]/g, ''))}
+          placeholder="Nombre del funcionario (como se visualiza en matrícula o carnet)"
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 

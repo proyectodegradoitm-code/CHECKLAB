@@ -101,16 +101,22 @@ export default function FGL010Page() {
   const [dlDateFrom, setDlDateFrom] = useState('')
   const [dlDateTo, setDlDateTo] = useState('')
   const [showDlPanel, setShowDlPanel] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [page, setPage] = useState(0)
+  const [total, setTotal] = useState(0)
+  const PAGE_SIZE = 100
 
-  const fetchSustancias = async () => {
+  const fetchSustancias = async (currentPage = page) => {
     setLoading(true)
-    let query = supabase.from('fgl_010').select('*').order('nombre_producto')
+    let query = supabase.from('fgl_010').select('*', { count: 'exact' }).order('nombre_producto')
     if (filtro === 'controlada') query = query.eq('sustancia_controlada', true)
     if (filtro === 'cancerigena') query = query.eq('sustancia_cancerigena', true)
     if (filtro === 'vencidas') query = query.lte('fecha_vencimiento', today).not('fecha_vencimiento', 'is', null)
     if (ORG_ID) query = query.eq('organizacion_id', ORG_ID)
-    const { data } = await query
+    query = query.range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
+    const { data, count } = await query
     setSustancias(data ?? [])
+    setTotal(count ?? 0)
     setLoading(false)
   }
 
@@ -121,7 +127,7 @@ export default function FGL010Page() {
     if (data) setLabs([...new Set(data.map((d: { laboratorio: string }) => d.laboratorio))])
   }
 
-  useEffect(() => { fetchSustancias() }, [filtro])
+  useEffect(() => { setPage(0); fetchSustancias(0) }, [filtro])
   useEffect(() => {
     fetchLabs()
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ''))
@@ -153,8 +159,10 @@ export default function FGL010Page() {
 
   const handleEdit = async () => {
     if (!editRecord) return
+    if (!editForm.nombre_producto.trim()) { setEditError('El nombre del producto es obligatorio.'); return }
     setSaving(true)
-    await supabase.from('fgl_010').update({
+    setEditError('')
+    const { error: updateErr } = await supabase.from('fgl_010').update({
       nombre_producto: editForm.nombre_producto, cas: editForm.cas || null,
       cantidad_actual: editForm.cantidad_actual ? parseFloat(editForm.cantidad_actual) : null,
       unidad: editForm.unidad || null, ubicacion: editForm.ubicacion || null,
@@ -162,7 +170,15 @@ export default function FGL010Page() {
       sustancia_controlada: editForm.sustancia_controlada, sustancia_cancerigena: editForm.sustancia_cancerigena,
       observaciones: editForm.observaciones || null, registrado_por: editForm.registrado_por || null,
     }).eq('id', editRecord.id)
-    await logAudit(supabase, { tabla: 'fgl_010', registro_id: editRecord.id, accion: 'editar', descripcion: `Edición de "${editForm.nombre_producto}"`, usuario: userEmail, laboratorio: editRecord.laboratorio })
+    if (updateErr) { setEditError(`Error al guardar: ${updateErr.message}`); setSaving(false); return }
+    await logAudit(supabase, {
+      tabla: 'fgl_010', registro_id: editRecord.id, accion: 'editar',
+      descripcion: `Edición de "${editForm.nombre_producto}"`, usuario: userEmail, laboratorio: editRecord.laboratorio,
+      datos: {
+        antes: { nombre_producto: editRecord.nombre_producto, cas: editRecord.cas, cantidad_actual: editRecord.cantidad_actual, fecha_vencimiento: editRecord.fecha_vencimiento, peligrosidad: editRecord.peligrosidad },
+        despues: { nombre_producto: editForm.nombre_producto, cas: editForm.cas || null, cantidad_actual: editForm.cantidad_actual ? parseFloat(editForm.cantidad_actual) : null, fecha_vencimiento: editForm.fecha_vencimiento || null, peligrosidad: editForm.peligrosidad || null },
+      },
+    })
     setEditRecord(null)
     setSaving(false)
     fetchSustancias()
@@ -272,12 +288,13 @@ export default function FGL010Page() {
                   rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
               </div>
             </div>
+            {editError && <p className="px-6 pb-2 text-red-600 text-xs">{editError}</p>}
             <div className="px-6 pb-5 flex gap-3">
               <button onClick={handleEdit} disabled={saving}
                 className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 rounded-lg text-sm">
                 {saving ? 'Guardando...' : 'Guardar cambios'}
               </button>
-              <button onClick={() => setEditRecord(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 rounded-lg text-sm">Cancelar</button>
+              <button onClick={() => { setEditRecord(null); setEditError('') }} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 rounded-lg text-sm">Cancelar</button>
             </div>
           </div>
         </div>
@@ -318,12 +335,15 @@ export default function FGL010Page() {
       )}
 
       {/* Encabezado */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">FGL 010 — Inventario de Sustancias Químicas</h1>
-          <p className="text-gray-600 text-sm mt-1">Control de inventario, vencimientos y clasificación de peligrosidad</p>
+      <div className="flex items-start justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center text-2xl shrink-0">🧪</div>
+          <div>
+            <h1 className="text-[20px] font-bold text-gray-900 tracking-tight">FGL 010 — Inventario de Sustancias Químicas</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Control de inventario, vencimientos y clasificación de peligrosidad</p>
+          </div>
         </div>
-        <button onClick={() => setShowAddModal(true)} className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+        <button onClick={() => setShowAddModal(true)} className="bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm shrink-0">
           + Nuevo Registro
         </button>
       </div>
@@ -400,6 +420,25 @@ export default function FGL010Page() {
           </tbody>
         </table>
       </div>
+
+      {/* Paginación */}
+      {total > PAGE_SIZE && (
+        <div className="mt-3 flex items-center justify-between px-1">
+          <span className="text-xs text-gray-500">
+            Mostrando {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} de {total} registros
+          </span>
+          <div className="flex gap-2">
+            <button onClick={() => { setPage(p => p - 1); fetchSustancias(page - 1) }} disabled={page === 0}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-50">
+              ← Anterior
+            </button>
+            <button onClick={() => { setPage(p => p + 1); fetchSustancias(page + 1) }} disabled={(page + 1) * PAGE_SIZE >= total}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-50">
+              Siguiente →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Descarga */}
       <div className="mt-4 bg-white border border-gray-200 rounded-xl px-4 py-3">

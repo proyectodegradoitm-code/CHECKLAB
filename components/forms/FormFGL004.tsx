@@ -1,12 +1,10 @@
 'use client'
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase'
 import { ORG_ID } from '@/lib/org'
 
 type Props = { qrCodigo: string; laboratorio: string; organizacionId?: string; onSuccess?: () => void }
 
 export default function FormFGL004({ qrCodigo, laboratorio, organizacionId, onSuccess }: Props) {
-  const supabase = createClient()
   const [enviado, setEnviado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -27,26 +25,47 @@ export default function FormFGL004({ qrCodigo, laboratorio, organizacionId, onSu
     setLoading(true)
     setError('')
 
-    const payload: Record<string, unknown> = {
-      qr_codigo: qrCodigo,
-      laboratorio,
-      nombre: form.nombre,
-      carnet_cc: form.carnet_cc,
-      elemento: form.elemento,
-      cantidad: form.cantidad,
-      observaciones: form.observaciones || null,
-      organizacion_id: organizacionId || ORG_ID || null,
-    }
-
     if (form.tipo === 'devolucion') {
-      payload.estado = 'devuelto'
-      payload.fecha_devolucion = new Date().toISOString()
+      const res = await fetch('/api/public/devolucion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          carnet_cc: form.carnet_cc,
+          elemento: form.elemento,
+          laboratorio,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Error al registrar devolución.')
+      } else {
+        setEnviado(true)
+        onSuccess?.()
+      }
+      setLoading(false)
+      return
     }
 
-    const { error: err } = await supabase.from('fgl_004').insert([payload])
-
-    if (err) {
-      setError('Error al guardar. Intenta de nuevo.')
+    const res = await fetch('/api/public/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tabla: 'fgl_004',
+        datos: {
+          qr_codigo: qrCodigo,
+          laboratorio,
+          nombre: form.nombre,
+          carnet_cc: form.carnet_cc,
+          elemento: form.elemento,
+          cantidad: form.cantidad,
+          observaciones: form.observaciones || null,
+          organizacion_id: organizacionId || ORG_ID || null,
+        },
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      setError(json.error ?? 'Error al guardar. Intenta de nuevo.')
     } else {
       setEnviado(true)
       onSuccess?.()
@@ -94,14 +113,16 @@ export default function FormFGL004({ qrCodigo, laboratorio, organizacionId, onSu
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Nombre completo *</label>
-        <input required value={form.nombre} onChange={e => set('nombre', e.target.value)}
-          placeholder="Nombre del solicitante"
+        <input required value={form.nombre}
+          onChange={e => set('nombre', e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]/g, ''))}
+          placeholder="Nombre del solicitante (como se visualiza en matrícula o carnet)"
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Carné / CC *</label>
-        <input required value={form.carnet_cc} onChange={e => set('carnet_cc', e.target.value)}
+        <input required value={form.carnet_cc} inputMode="numeric"
+          onChange={e => set('carnet_cc', e.target.value.replace(/\D/g, ''))}
           placeholder="Número de documento"
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>

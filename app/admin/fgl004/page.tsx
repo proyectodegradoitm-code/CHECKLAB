@@ -101,14 +101,20 @@ export default function FGL004Page() {
   const [dlDateTo, setDlDateTo] = useState('')
   const [showDlPanel, setShowDlPanel] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [page, setPage] = useState(0)
+  const [total, setTotal] = useState(0)
+  const PAGE_SIZE = 100
 
-  const fetchPrestamos = async () => {
+  const fetchPrestamos = async (currentPage = page) => {
     setLoading(true)
-    let query = supabase.from('fgl_004').select('*').order('created_at', { ascending: false })
+    let query = supabase.from('fgl_004').select('*', { count: 'exact' }).order('created_at', { ascending: false })
     if (filtro !== 'todos') query = query.eq('estado', filtro)
     if (ORG_ID) query = query.eq('organizacion_id', ORG_ID)
-    const { data } = await query
+    query = query.range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
+    const { data, count } = await query
     setPrestamos(data ?? [])
+    setTotal(count ?? 0)
     setLoading(false)
   }
 
@@ -119,7 +125,7 @@ export default function FGL004Page() {
     if (data) setLabs([...new Set(data.map((d: { laboratorio: string }) => d.laboratorio))])
   }
 
-  useEffect(() => { fetchPrestamos() }, [filtro])
+  useEffect(() => { setPage(0); fetchPrestamos(0) }, [filtro])
   useEffect(() => {
     fetchLabs()
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ''))
@@ -139,15 +145,25 @@ export default function FGL004Page() {
 
   const handleEdit = async () => {
     if (!editRecord) return
+    if (!editForm.nombre.trim() || !editForm.elemento.trim()) { setEditError('Nombre y elemento son obligatorios.'); return }
     setSaving(true)
-    await supabase.from('fgl_004').update({
+    setEditError('')
+    const { error: updateErr } = await supabase.from('fgl_004').update({
       nombre: editForm.nombre,
       carnet_cc: editForm.carnet_cc,
       elemento: editForm.elemento,
       cantidad: editForm.cantidad,
       observaciones: editForm.observaciones || null,
     }).eq('id', editRecord.id)
-    await logAudit(supabase, { tabla: 'fgl_004', registro_id: editRecord.id, accion: 'editar', descripcion: `Edición de "${editForm.elemento}" por ${editForm.nombre}`, usuario: userEmail, laboratorio: editRecord.laboratorio })
+    if (updateErr) { setEditError(`Error al guardar: ${updateErr.message}`); setSaving(false); return }
+    await logAudit(supabase, {
+      tabla: 'fgl_004', registro_id: editRecord.id, accion: 'editar',
+      descripcion: `Edición de "${editForm.elemento}" por ${editForm.nombre}`, usuario: userEmail, laboratorio: editRecord.laboratorio,
+      datos: {
+        antes: { nombre: editRecord.nombre, carnet_cc: editRecord.carnet_cc, elemento: editRecord.elemento, cantidad: editRecord.cantidad },
+        despues: { nombre: editForm.nombre, carnet_cc: editForm.carnet_cc, elemento: editForm.elemento, cantidad: editForm.cantidad },
+      },
+    })
     setEditRecord(null)
     setSaving(false)
     fetchPrestamos()
@@ -248,12 +264,13 @@ export default function FGL004Page() {
                   rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
               </div>
             </div>
+            {editError && <p className="px-6 pb-2 text-red-600 text-xs">{editError}</p>}
             <div className="px-6 pb-5 flex gap-3">
               <button onClick={handleEdit} disabled={saving}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 rounded-lg text-sm">
                 {saving ? 'Guardando...' : 'Guardar cambios'}
               </button>
-              <button onClick={() => setEditRecord(null)}
+              <button onClick={() => { setEditRecord(null); setEditError('') }}
                 className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 rounded-lg text-sm">Cancelar</button>
             </div>
           </div>
@@ -297,13 +314,16 @@ export default function FGL004Page() {
       )}
 
       {/* Encabezado */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">FGL 004 — Préstamo de Equipos</h1>
-          <p className="text-gray-600 text-sm mt-1">Registro de préstamos y devoluciones de equipos, herramientas y EPP</p>
+      <div className="flex items-start justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-2xl shrink-0">🔑</div>
+          <div>
+            <h1 className="text-[20px] font-bold text-gray-900 tracking-tight">FGL 004 — Préstamo de Equipos</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Registro de préstamos y devoluciones de equipos, herramientas y EPP</p>
+          </div>
         </div>
         <button onClick={() => setShowAddModal(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+          className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm shrink-0">
           + Nuevo Registro
         </button>
       </div>
@@ -402,6 +422,25 @@ export default function FGL004Page() {
           </tbody>
         </table>
       </div>
+
+      {/* Paginación */}
+      {total > PAGE_SIZE && (
+        <div className="mt-3 flex items-center justify-between px-1">
+          <span className="text-xs text-gray-500">
+            Mostrando {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} de {total} registros
+          </span>
+          <div className="flex gap-2">
+            <button onClick={() => { setPage(p => p - 1); fetchPrestamos(page - 1) }} disabled={page === 0}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-50">
+              ← Anterior
+            </button>
+            <button onClick={() => { setPage(p => p + 1); fetchPrestamos(page + 1) }} disabled={(page + 1) * PAGE_SIZE >= total}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-50">
+              Siguiente →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Descarga */}
       <div className="mt-4 bg-white border border-gray-200 rounded-xl px-4 py-3">

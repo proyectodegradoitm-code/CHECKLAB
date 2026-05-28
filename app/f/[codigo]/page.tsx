@@ -1,8 +1,13 @@
-import { createClient } from '@/lib/supabase-server'
+import { createClient } from '@supabase/supabase-js'
 import { notFound } from 'next/navigation'
 import FormFGL004 from '@/components/forms/FormFGL004'
 import FormFGL010 from '@/components/forms/FormFGL010'
 import FormFGL140 from '@/components/forms/FormFGL140'
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default async function PublicFormPage({
   params,
@@ -10,9 +15,8 @@ export default async function PublicFormPage({
   params: Promise<{ codigo: string }>
 }) {
   const { codigo } = await params
-  const supabase = await createClient()
 
-  const { data: qr } = await supabase
+  const { data: qr } = await supabaseAdmin
     .from('qr_codes')
     .select('*')
     .eq('codigo', codigo)

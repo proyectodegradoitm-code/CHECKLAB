@@ -16,6 +16,7 @@ type ControlEpp = {
   estado: 'bueno' | 'regular' | 'malo'
   periodicidad: string | null
   revisado_por: string | null
+  cedula_revisado: string | null
   observaciones: string | null
   created_at: string
 }
@@ -28,7 +29,21 @@ type EditForm = {
   estado: string
   periodicidad: string
   revisado_por: string
+  cedula_revisado: string
   observaciones: string
+}
+
+function calcFechaVencimiento(fechaRevision: string, periodicidad: string): string {
+  if (!fechaRevision || periodicidad === 'otro' || !periodicidad) return ''
+  const d = new Date(fechaRevision + 'T12:00:00')
+  switch (periodicidad) {
+    case '15_dias': d.setDate(d.getDate() + 15); break
+    case '1_mes': d.setMonth(d.getMonth() + 1); break
+    case '2_meses': d.setMonth(d.getMonth() + 2); break
+    case 'anual': d.setFullYear(d.getFullYear() + 1); break
+    default: return ''
+  }
+  return d.toISOString().split('T')[0]
 }
 
 const ELEMENTO_LABELS: Record<string, string> = {
@@ -44,12 +59,12 @@ const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('es-CO',
 const fmtDT = (d: string) => new Date(d).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 function downloadCSV(data: ControlEpp[], filename: string) {
-  const headers = ['Elemento', 'Laboratorio', 'ID/Placa', 'F. Revisión', 'F. Vencimiento', 'Estado', 'Periodicidad', 'Revisado Por', 'Observaciones', 'Fecha Registro']
+  const headers = ['Elemento', 'Laboratorio', 'ID/Placa', 'F. Revisión', 'F. Vencimiento', 'Estado', 'Periodicidad', 'Revisado Por', 'Cédula Revisado', 'Observaciones', 'Fecha Registro']
   const rows = data.map(r => [
     ELEMENTO_LABELS[r.elemento_tipo] ?? r.elemento_tipo, r.laboratorio, r.identificacion ?? '',
     r.fecha_revision, r.fecha_vencimiento ?? '', r.estado,
     PERIODICIDAD_LABELS[r.periodicidad ?? ''] ?? (r.periodicidad ?? ''),
-    r.revisado_por ?? '', r.observaciones ?? '', fmtDT(r.created_at),
+    r.revisado_por ?? '', r.cedula_revisado ?? '', r.observaciones ?? '', fmtDT(r.created_at),
   ])
   const csv = [headers, ...rows].map(row => row.map(v => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n')
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
@@ -88,7 +103,7 @@ export default function FGL140Page() {
 
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [editRecord, setEditRecord] = useState<ControlEpp | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ elemento_tipo: '', identificacion: '', fecha_revision: today, fecha_vencimiento: '', estado: 'bueno', periodicidad: '1_mes', revisado_por: '', observaciones: '' })
+  const [editForm, setEditForm] = useState<EditForm>({ elemento_tipo: '', identificacion: '', fecha_revision: today, fecha_vencimiento: '', estado: 'bueno', periodicidad: '1_mes', revisado_por: '', cedula_revisado: '', observaciones: '' })
   const [showAddModal, setShowAddModal] = useState(false)
   const [addLab, setAddLab] = useState('')
   const [addLabCustom, setAddLabCustom] = useState('')
@@ -98,14 +113,20 @@ export default function FGL140Page() {
   const [dlDateFrom, setDlDateFrom] = useState('')
   const [dlDateTo, setDlDateTo] = useState('')
   const [showDlPanel, setShowDlPanel] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [page, setPage] = useState(0)
+  const [total, setTotal] = useState(0)
+  const PAGE_SIZE = 100
 
-  const fetchRegistros = async () => {
+  const fetchRegistros = async (currentPage = page) => {
     setLoading(true)
-    let query = supabase.from('fgl_140').select('*').order('fecha_revision', { ascending: false })
+    let query = supabase.from('fgl_140').select('*', { count: 'exact' }).order('fecha_revision', { ascending: false })
     if (filtroTipo !== 'todos') query = query.eq('elemento_tipo', filtroTipo)
     if (ORG_ID) query = query.eq('organizacion_id', ORG_ID)
-    const { data } = await query
+    query = query.range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
+    const { data, count } = await query
     setRegistros(data ?? [])
+    setTotal(count ?? 0)
     setLoading(false)
   }
 
@@ -116,7 +137,7 @@ export default function FGL140Page() {
     if (data) setLabs([...new Set(data.map((d: { laboratorio: string }) => d.laboratorio))])
   }
 
-  useEffect(() => { fetchRegistros() }, [filtroTipo])
+  useEffect(() => { setPage(0); fetchRegistros(0) }, [filtroTipo])
   useEffect(() => {
     fetchLabs()
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ''))
@@ -138,19 +159,30 @@ export default function FGL140Page() {
 
   const openEdit = (r: ControlEpp) => {
     setEditRecord(r)
-    setEditForm({ elemento_tipo: r.elemento_tipo, identificacion: r.identificacion ?? '', fecha_revision: r.fecha_revision, fecha_vencimiento: r.fecha_vencimiento ?? '', estado: r.estado, periodicidad: r.periodicidad ?? '1_mes', revisado_por: r.revisado_por ?? '', observaciones: r.observaciones ?? '' })
+    setEditForm({ elemento_tipo: r.elemento_tipo, identificacion: r.identificacion ?? '', fecha_revision: r.fecha_revision, fecha_vencimiento: r.fecha_vencimiento ?? '', estado: r.estado, periodicidad: r.periodicidad ?? '1_mes', revisado_por: r.revisado_por ?? '', cedula_revisado: r.cedula_revisado ?? '', observaciones: r.observaciones ?? '' })
   }
 
   const handleEdit = async () => {
     if (!editRecord) return
+    if (!editForm.elemento_tipo.trim() || !editForm.fecha_revision) { setEditError('Tipo de elemento y fecha de revisión son obligatorios.'); return }
     setSaving(true)
-    await supabase.from('fgl_140').update({
+    setEditError('')
+    const { error: updateErr } = await supabase.from('fgl_140').update({
       elemento_tipo: editForm.elemento_tipo, identificacion: editForm.identificacion || null,
       fecha_revision: editForm.fecha_revision, fecha_vencimiento: editForm.fecha_vencimiento || null,
       estado: editForm.estado, periodicidad: editForm.periodicidad || null,
-      revisado_por: editForm.revisado_por || null, observaciones: editForm.observaciones || null,
+      revisado_por: editForm.revisado_por || null, cedula_revisado: editForm.cedula_revisado || null,
+      observaciones: editForm.observaciones || null,
     }).eq('id', editRecord.id)
-    await logAudit(supabase, { tabla: 'fgl_140', registro_id: editRecord.id, accion: 'editar', descripcion: `Edición de "${ELEMENTO_LABELS[editForm.elemento_tipo] ?? editForm.elemento_tipo}"`, usuario: userEmail, laboratorio: editRecord.laboratorio })
+    if (updateErr) { setEditError(`Error al guardar: ${updateErr.message}`); setSaving(false); return }
+    await logAudit(supabase, {
+      tabla: 'fgl_140', registro_id: editRecord.id, accion: 'editar',
+      descripcion: `Edición de "${ELEMENTO_LABELS[editForm.elemento_tipo] ?? editForm.elemento_tipo}"`, usuario: userEmail, laboratorio: editRecord.laboratorio,
+      datos: {
+        antes: { elemento_tipo: editRecord.elemento_tipo, estado: editRecord.estado, fecha_revision: editRecord.fecha_revision, fecha_vencimiento: editRecord.fecha_vencimiento },
+        despues: { elemento_tipo: editForm.elemento_tipo, estado: editForm.estado, fecha_revision: editForm.fecha_revision, fecha_vencimiento: editForm.fecha_vencimiento || null },
+      },
+    })
     setEditRecord(null); setSaving(false); fetchRegistros()
   }
 
@@ -162,7 +194,13 @@ export default function FGL140Page() {
   }
 
   const labSeleccionado = addLab === '__custom' ? addLabCustom : addLab
-  const setEF = (k: keyof EditForm, v: string) => setEditForm(f => ({ ...f, [k]: v }))
+  const setEF = (k: keyof EditForm, v: string) => setEditForm(f => {
+    const updated = { ...f, [k]: v }
+    if ((k === 'periodicidad' || k === 'fecha_revision') && updated.periodicidad !== 'otro') {
+      updated.fecha_vencimiento = calcFechaVencimiento(updated.fecha_revision, updated.periodicidad)
+    }
+    return updated
+  })
   const dataParaDescarga = registros.filter(r => {
     const cr = r.created_at?.split('T')[0] ?? ''
     return (!dlDateFrom || cr >= dlDateFrom) && (!dlDateTo || cr <= dlDateTo)
@@ -218,9 +256,14 @@ export default function FGL140Page() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Fecha vencimiento</label>
-                  <input type="date" value={editForm.fecha_vencimiento} onChange={e => setEF('fecha_vencimiento', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Fecha vencimiento
+                    {editForm.periodicidad !== 'otro' && <span className="ml-1 text-[10px] text-blue-500 font-normal">auto</span>}
+                  </label>
+                  <input type="date" value={editForm.fecha_vencimiento}
+                    readOnly={editForm.periodicidad !== 'otro'}
+                    onChange={e => editForm.periodicidad === 'otro' && setEF('fecha_vencimiento', e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${editForm.periodicidad !== 'otro' ? 'bg-blue-50 border-blue-200 cursor-not-allowed' : 'border-gray-300'}`} />
                 </div>
               </div>
               <div>
@@ -234,10 +277,19 @@ export default function FGL140Page() {
                   ))}
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Revisado por</label>
-                <input value={editForm.revisado_por} onChange={e => setEF('revisado_por', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Revisado por</label>
+                  <input value={editForm.revisado_por}
+                    onChange={e => setEF('revisado_por', e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]/g, ''))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Cédula del revisado</label>
+                  <input value={editForm.cedula_revisado} inputMode="numeric"
+                    onChange={e => setEF('cedula_revisado', e.target.value.replace(/\D/g, ''))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Observaciones</label>
@@ -245,12 +297,13 @@ export default function FGL140Page() {
                   rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
               </div>
             </div>
+            {editError && <p className="px-6 pb-2 text-red-600 text-xs">{editError}</p>}
             <div className="px-6 pb-5 flex gap-3">
               <button onClick={handleEdit} disabled={saving}
                 className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 rounded-lg text-sm">
                 {saving ? 'Guardando...' : 'Guardar cambios'}
               </button>
-              <button onClick={() => setEditRecord(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 rounded-lg text-sm">Cancelar</button>
+              <button onClick={() => { setEditRecord(null); setEditError('') }} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 rounded-lg text-sm">Cancelar</button>
             </div>
           </div>
         </div>
@@ -329,6 +382,7 @@ export default function FGL140Page() {
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">F. Vencimiento</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Estado</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Revisado por</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Cédula</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Periodicidad</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Fecha Registro</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Acciones</th>
@@ -336,9 +390,9 @@ export default function FGL140Page() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-500">Cargando...</td></tr>
+              <tr><td colSpan={11} className="px-4 py-6 text-center text-gray-500">Cargando...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-500">Sin registros</td></tr>
+              <tr><td colSpan={11} className="px-4 py-6 text-center text-gray-500">Sin registros</td></tr>
             ) : filtered.map(r => (
               <tr key={r.id} className={`hover:bg-gray-50 ${isVencida(r.fecha_vencimiento) ? 'bg-red-50' : ''}`}>
                 <td className="px-4 py-3 font-medium text-gray-900">{ELEMENTO_LABELS[r.elemento_tipo] ?? r.elemento_tipo}</td>
@@ -358,6 +412,7 @@ export default function FGL140Page() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-gray-600">{r.revisado_por ?? '—'}</td>
+                <td className="px-4 py-3 text-gray-600">{r.cedula_revisado ?? '—'}</td>
                 <td className="px-4 py-3 text-gray-600">{PERIODICIDAD_LABELS[r.periodicidad ?? ''] ?? (r.periodicidad ?? '—')}</td>
                 <td className="px-4 py-3 text-xs text-gray-500">{fmtDT(r.created_at)}</td>
                 <td className="px-4 py-3">
@@ -371,6 +426,25 @@ export default function FGL140Page() {
           </tbody>
         </table>
       </div>
+
+      {/* Paginación */}
+      {total > PAGE_SIZE && (
+        <div className="mt-3 flex items-center justify-between px-1">
+          <span className="text-xs text-gray-500">
+            Mostrando {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} de {total} registros
+          </span>
+          <div className="flex gap-2">
+            <button onClick={() => { setPage(p => p - 1); fetchRegistros(page - 1) }} disabled={page === 0}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-50">
+              ← Anterior
+            </button>
+            <button onClick={() => { setPage(p => p + 1); fetchRegistros(page + 1) }} disabled={(page + 1) * PAGE_SIZE >= total}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-50">
+              Siguiente →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Descarga */}
       <div className="mt-4 bg-white border border-gray-200 rounded-xl px-4 py-3">

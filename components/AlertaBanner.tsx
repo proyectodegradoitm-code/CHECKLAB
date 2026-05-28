@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
+import { ORG_ID } from '@/lib/org'
 import Link from 'next/link'
 
 type Alerta = {
@@ -20,24 +21,32 @@ export default function AlertaBanner() {
       const in7days = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       const in30days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
+      let qSustVenc = supabase.from('fgl_010').select('*', { count: 'exact', head: true })
+        .lt('fecha_vencimiento', today).not('fecha_vencimiento', 'is', null)
+      let qSustProx = supabase.from('fgl_010').select('*', { count: 'exact', head: true })
+        .gte('fecha_vencimiento', today).lte('fecha_vencimiento', in30days)
+      let qEppVenc = supabase.from('fgl_140').select('*', { count: 'exact', head: true })
+        .lt('fecha_vencimiento', today).not('fecha_vencimiento', 'is', null)
+      let qEppProx = supabase.from('fgl_140').select('*', { count: 'exact', head: true })
+        .gte('fecha_vencimiento', today).lte('fecha_vencimiento', in7days)
+      let qPrest = supabase.from('fgl_004').select('*', { count: 'exact', head: true })
+        .eq('estado', 'activo')
+
+      if (ORG_ID) {
+        qSustVenc = qSustVenc.eq('organizacion_id', ORG_ID)
+        qSustProx = qSustProx.eq('organizacion_id', ORG_ID)
+        qEppVenc  = qEppVenc.eq('organizacion_id', ORG_ID)
+        qEppProx  = qEppProx.eq('organizacion_id', ORG_ID)
+        qPrest    = qPrest.eq('organizacion_id', ORG_ID)
+      }
+
       const [
         { count: sustVencidas },
         { count: sustProximas },
         { count: eppVencidos },
         { count: eppProximos },
         { count: prestamosActivos },
-      ] = await Promise.all([
-        supabase.from('fgl_010').select('*', { count: 'exact', head: true })
-          .lt('fecha_vencimiento', today).not('fecha_vencimiento', 'is', null),
-        supabase.from('fgl_010').select('*', { count: 'exact', head: true })
-          .gte('fecha_vencimiento', today).lte('fecha_vencimiento', in30days),
-        supabase.from('fgl_140').select('*', { count: 'exact', head: true })
-          .lt('fecha_vencimiento', today).not('fecha_vencimiento', 'is', null),
-        supabase.from('fgl_140').select('*', { count: 'exact', head: true })
-          .gte('fecha_vencimiento', today).lte('fecha_vencimiento', in7days),
-        supabase.from('fgl_004').select('*', { count: 'exact', head: true })
-          .eq('estado', 'activo'),
-      ])
+      ] = await Promise.all([qSustVenc, qSustProx, qEppVenc, qEppProx, qPrest])
 
       const nuevas: Alerta[] = []
 

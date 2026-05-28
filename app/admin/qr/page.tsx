@@ -20,8 +20,11 @@ const tipoLabels: Record<string, string> = {
   fgl140: 'FGL 140 — Control EPP',
 }
 
-const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : '')
+const getBaseUrl = () => {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
+  if (typeof window !== 'undefined') return window.location.origin
+  return ''
+}
 
 export default function QRPage() {
   const supabase = createClient()
@@ -29,6 +32,10 @@ export default function QRPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [baseUrl, setBaseUrl] = useState('')
+  const [copied, setCopied] = useState<string | null>(null)
+
+  useEffect(() => { setBaseUrl(getBaseUrl()) }, [])
 
   const [form, setForm] = useState({
     tipo: 'fgl004',
@@ -83,20 +90,65 @@ export default function QRPage() {
     URL.revokeObjectURL(url)
   }
 
+  const isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')
+
+  const copyUrl = async (url: string, codigo: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url)
+      } else {
+        const el = document.createElement('textarea')
+        el.value = url
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand('copy')
+        document.body.removeChild(el)
+      }
+      setCopied(codigo)
+      setTimeout(() => setCopied(null), 2000)
+    } catch {
+      // silenciar error si el navegador no permite copiar
+    }
+  }
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Gestión de Códigos QR</h1>
-          <p className="text-gray-500 text-sm mt-1">Genera y administra QR para cada formulario</p>
+      <div className="flex items-start justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-2xl shrink-0">📱</div>
+          <div>
+            <h1 className="text-[20px] font-bold text-gray-900 tracking-tight">Gestión de Códigos QR</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Genera y administra QR para cada formulario del laboratorio</p>
+          </div>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+          className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm shrink-0"
         >
           + Nuevo QR
         </button>
       </div>
+
+      {/* Advertencia URL localhost */}
+      {isLocalhost && baseUrl && (
+        <div className="mb-5 flex items-start gap-3 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3.5">
+          <span className="text-amber-500 text-lg mt-0.5 shrink-0">⚠️</span>
+          <div>
+            <p className="text-sm font-semibold text-amber-800">Los QR apuntan a <code className="bg-amber-100 px-1 rounded">localhost</code> — los celulares no podrán abrirlos</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Define <code className="bg-amber-100 px-1 rounded">NEXT_PUBLIC_APP_URL</code> en tu <strong>.env.local</strong> y en Vercel con la URL pública de la app (ej: <code className="bg-amber-100 px-1 rounded">https://tu-app.vercel.app</code>) y reinicia el servidor.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* URL base activa */}
+      {baseUrl && !isLocalhost && (
+        <div className="mb-5 flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+          <span className="text-green-500 text-sm">✅</span>
+          <p className="text-xs text-green-700">QR apuntan a: <span className="font-mono font-semibold">{baseUrl}</span></p>
+        </div>
+      )}
 
       {/* Form */}
       {showForm && (
@@ -149,8 +201,8 @@ export default function QRPage() {
       )}
 
       {/* QR List */}
-      {loading ? (
-        <p className="text-gray-400 text-sm">Cargando...</p>
+      {loading || !baseUrl ? (
+        <p className="text-gray-400 text-sm">{!baseUrl ? 'Cargando URL base...' : 'Cargando...'}</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {qrCodes.map(qr => {
@@ -179,9 +231,19 @@ export default function QRPage() {
                   }`}>
                     {tipoLabels[qr.tipo]}
                   </span>
-                  <p className="text-sm font-medium text-gray-700">{qr.laboratorio}</p>
+                  <p className="text-sm font-medium text-gray-800">{qr.laboratorio}</p>
                   {qr.descripcion && <p className="text-xs text-gray-400">{qr.descripcion}</p>}
-                  <p className="text-xs text-gray-300 mt-1 font-mono truncate">{qr.codigo}</p>
+                </div>
+
+                {/* URL visible */}
+                <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 mb-3">
+                  <p className="text-[10px] font-mono text-gray-500 truncate flex-1">{url}</p>
+                  <button
+                    onClick={() => copyUrl(url, qr.codigo)}
+                    className="shrink-0 text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    {copied === qr.codigo ? '✓ Copiado' : 'Copiar'}
+                  </button>
                 </div>
 
                 {/* Actions */}
@@ -190,7 +252,7 @@ export default function QRPage() {
                     onClick={() => downloadQR(qr.codigo)}
                     className="flex-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 py-1.5 rounded-lg transition-colors"
                   >
-                    Descargar
+                    Descargar SVG
                   </button>
                   <button
                     onClick={() => handleToggle(qr)}
